@@ -1,0 +1,157 @@
+Features:
+- WeatherRecord ADT
+- WeatherDataStorage (2D array for [year_index][city_index] temperatures)
+- Row-major & column-major access paths
+- Sparse-data handling with both sentinel and dictionary-based sparse matrix
+- insert, delete, retrieve operations
+"""
+from dataclasses import dataclass
+from typing import List, Dict, Optional, Tuple
+import math
+# -----------------------------
+# 1) WeatherRecord ADT
+# -----------------------------
+@dataclass
+class WeatherRecord:
+ day: int
+ month: int
+ year: int
+ city: str
+ temperature: float
+ def key(self) -> Tuple[str, int]:
+ """Key by (city, year) for table indexing."""
+ return (self.city, self.year)
+# -----------------------------
+# 2) Data Storage Class
+# -----------------------------
+class WeatherDataStorage:
+ """
+ Uses:
+ - 2D dense array: rows = years (index), cols = cities (index)
+ - Sentinel for missing values: float('nan')
+ - Alternative sparse representation: dict[(year, city)] = temperature
+ """
+ def __init__(self, years: List[int], cities: List[str], use_sparse: bool=False):
+ self.years = years[:]
+ self.cities = cities[:]
+ self.year_to_index = {y:i for i,y in enumerate(self.years)}
+ self.city_to_index = {c:i for i,c in enumerate(self.cities)}
+ self.missing = float('nan')
+ self.use_sparse = use_sparse
+ if not use_sparse:
+ self.table: List[List[float]] = [
+ [self.missing for _ in range(len(self.cities))]
+ for _ in range(len(self.years))
+ ]
+ self.sparse: Dict[Tuple[int,str], float] = {}
+ else:
+ self.sparse: Dict[Tuple[int,str], float] = {}
+ self.table = [] # not used
+ # Insertion
+ def insert(self, record: WeatherRecord) -> None:
+ if record.year not in self.year_to_index or record.city not in self.city_to_index:
+ raise ValueError("Unknown city or year in record")
+ if self.use_sparse:
+ self.sparse[(record.year, record.city)] = record.temperature
+ else:
+ r = self.year_to_index[record.year]
+ c = self.city_to_index[record.city]
+ self.table[r][c] = record.temperature
+ # Deletion
+ def delete(self, city: str, year: int) -> None:
+ if year not in self.year_to_index or city not in self.city_to_index:
+ return
+ if self.use_sparse:
+ self.sparse.pop((year, city), None)
+ else:
+ r = self.year_to_index[year]
+ c = self.city_to_index[city]
+ self.table[r][c] = self.missing
+ # Retrieval
+ def retrieve(self, city: str, year: int) -> Optional[float]:
+ if year not in self.year_to_index or city not in self.city_to_index:
+ return None
+ if self.use_sparse:
+ return self.sparse.get((year, city))
+ else:
+ r = self.year_to_index[year]
+ c = self.city_to_index[city]
+ val = self.table[r][c]
+ if math.isnan(val):
+ return None
+ return val
+ # Populate bulk
+ def populate_array(self, data: List[WeatherRecord]) -> None:
+ for rec in data:
+ self.insert(rec)
+ # Row-major
+ def row_major_access(self):
+ out = []
+ if self.use_sparse:
+ for y in self.years:
+ for c in self.cities:
+ out.append((y, c, self.sparse.get((y, c))))
+ else:
+ for r, y in enumerate(self.years):
+ row = self.table[r]
+ for c_idx, c in enumerate(self.cities):
+ val = row[c_idx]
+ out.append((y, c, None if math.isnan(val) else val))
+ return out
+ # Column-major
+ def column_major_access(self):
+ out = []
+ if self.use_sparse:
+ for c in self.cities:
+ for y in self.years:
+ out.append((y, c, self.sparse.get((y, c))))
+ else:
+ for c_idx, c in enumerate(self.cities):
+ for r, y in enumerate(self.years):
+ val = self.table[r][c_idx]
+ out.append((y, c, None if math.isnan(val) else val))
+ return out
+ # Convert dense to sparse dict
+ def to_sparse(self):
+ result = {}
+ if self.use_sparse:
+ return dict(self.sparse)
+ for r, y in enumerate(self.years):
+ for c_idx, c in enumerate(self.cities):
+ v = self.table[r][c_idx]
+ if not math.isnan(v):
+ result[(y, c)] = v
+ return result
+ # Metrics
+ def non_missing_count(self) -> int:
+ if self.use_sparse:
+ return len(self.sparse)
+ cnt = 0
+ for r in range(len(self.years)):
+ for c in range(len(self.cities)):
+ import math
+ if not math.isnan(self.table[r][c]):
+ cnt += 1
+ return cnt
+ def size_metrics(self) -> dict:
+ dense_cells = len(self.years) * len(self.cities)
+ return {
+ "years": len(self.years),
+ "cities": len(self.cities),
+ "dense_cells": dense_cells,
+ "non_missing": self.non_missing_count(),
+ "sparse_entries": len(self.sparse) if self.use_sparse else len(self.to_sparse())
+ }
+if __name__ == "__main__":
+ years = [2023, 2024, 2025]
+ cities = ["Delhi", "Mumbai", "Bengaluru", "Kolkata"]
+ ds = WeatherDataStorage(years, cities, use_sparse=False)
+ # Sample inserts
+ ds.insert(WeatherRecord(1, 1, 2024, "Delhi", 15.5))
+ ds.insert(WeatherRecord(15, 6, 2025, "Mumbai", 31.2))
+ ds.insert(WeatherRecord(20, 12, 2023, "Kolkata", 21.0))
+ print("Retrieve(Delhi, 2024) ->", ds.retrieve("Delhi", 2024))
+ print("Retrieve(Bengaluru, 2024) ->", ds.retrieve("Bengaluru", 2024))
+ print("Row-major (first 5):", ds.row_major_access()[:5])
+ print("Column-major (first 5):", ds.column_major_access()[:5])
+ print("Metrics:", ds.size_metrics())
